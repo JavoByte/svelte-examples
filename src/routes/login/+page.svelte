@@ -1,14 +1,13 @@
 <script lang="ts">
-	import { applyAction } from "$app/forms";
-	import { goto } from "$app/navigation";
+	import { applyAction, deserialize } from "$app/forms";
+	import { goto, invalidateAll } from "$app/navigation";
   import type { ActionResult } from "@sveltejs/kit";
-  import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+  import { getAuth, signInWithEmailAndPassword, type User, type UserCredential } from "firebase/auth";
 	import { onMount } from "svelte";
   import { auth } from '../../stores/auth'
+	import type { ActionData } from "./$types";
   
-  // We are typing this as any, as we don't have any form actions, so there is no ActionData.
-  // Also, this won't be our final approach, so it's "ok" for now. We will fix this on our next commit.
-  export let form: any;
+  export let form: ActionData;
 
   onMount(() => {
     return auth.subscribe((user) => {
@@ -18,32 +17,28 @@
     });
   });
 
-  const login = async (email: string | undefined, password: string | undefined): Promise<ActionResult> => {
+  const login = async (email: string | undefined, password: string | undefined): Promise<ActionResult<{credential: UserCredential}, Record<string, string>>> => {
     if (!email || !password) {
-      return {
-        type: 'error',
-        error: 'Email and password are required'
-      };
+      return { type: 'failure', status: 400, data: { message: 'Email or password are missing' }}
     }
 
     const auth = getAuth();
 
     try {
-      const user = await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(auth, email, password);
       return {
         type: 'success',
         status: 200,
-        data: { user },
+        data: { credential },
       }
     } catch (error) {
       return {
-        type: 'success',
+        type: 'failure',
         status: 403,
-        data: {
-          errorMessage: (error as Error).message
-        }
+        data: { message: (error as Error).message }
       }
     }
+
   }
   
   async function handleSubmit(this: HTMLFormElement, event: unknown): Promise<void> {
@@ -52,18 +47,48 @@
     const email = formData.get('email')?.toString();
     const password = formData.get('password')?.toString();
 
-    const result = await login(email, password);
+    try {
+      const loginResult = await login(email, password);
 
-    applyAction(result);
+      if (loginResult.type !== 'success') {
+        applyAction(loginResult);
+
+        return;
+      }
+
+      const { data } = loginResult;
+      if (!data?.credential) {
+        throw new Error('Login returned success but no user credential data');
+      }
+
+      const { credential: { user } } = data;
+      formData.set('token', await user.getIdToken());
+  
+      const response = await fetch(this.action, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = deserialize(await response.text());
+
+      if (result.type === 'success') {
+        await invalidateAll();
+      }
+    } catch (error) {
+      applyAction({
+        type: 'error',
+        error,
+      });
+    }
   }
 </script>
 
 
 <div class="container mt-8 mx-auto">
   <div class="w-1/3 mx-auto">
-    {#if form?.errorMessage}
+    {#if form && !form.success && form.message}
       <div class="text-red-700">
-        {form.errorMessage}
+        {form.message}
       </div>
     {/if}
 

@@ -7,12 +7,6 @@
   import Navbar from '../ui/Navbar.svelte';
   
   onMount(initFirebase);
-
-  onMount(() => {
-    const firebaseAuth = getAuth();
-
-    onAuthStateChanged(firebaseAuth, auth.set)
-  });
 </script>
 
 <Navbar />

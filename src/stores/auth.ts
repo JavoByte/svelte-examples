@@ -1,8 +1,21 @@
-import { writable } from 'svelte/store';
+import { page } from '$app/stores';
+import { derived } from 'svelte/store';
 
 type User = {
 	uid: string;
-	email: string | null;
+	email?: string;
 };
 
-export const auth = writable<User | null>(null);
+export const auth = derived<typeof page, User | null>(
+	page,
+	($page, set) => {
+		const { user } = $page.data;
+		if (!user) {
+			set(null);
+			return;
+		}
+
+		set(user);
+	},
+	null
+);
